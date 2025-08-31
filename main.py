@@ -5,7 +5,11 @@ import tempfile
 import os
 import wandb
 import hydra
+from hydra.utils import get_original_cwd
 from omegaconf import DictConfig
+
+proj_root = os.path.dirname(os.path.abspath(__file__))
+local_components = os.path.join(proj_root, "components")
 
 _steps = [
     "download",
@@ -31,6 +35,7 @@ def go(config: DictConfig):
     # Steps to execute
     steps_par = config['main']['steps']
     active_steps = steps_par.split(",") if steps_par != "all" else _steps
+    repo_root = get_original_cwd()
 
     # Move to a temporary directory
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -50,23 +55,61 @@ def go(config: DictConfig):
                 },
             )
 
+
         if "basic_cleaning" in active_steps:
             ##################
             # Implement here #
             ##################
-            pass
+
+            _ = mlflow.run(
+                os.path.join(repo_root, "src", "basic_cleaning"),
+                "main",
+                env_manager="conda",
+                parameters={
+                    "input_artifact": "sample.csv:latest",
+                    "output_artifact": "clean_sample.csv",
+                    "output_type": "clean_data",
+                    "output_description": "Data after basic cleaning",
+                    "min_price": config["etl"]["min_price"],
+                    "max_price": config["etl"]["max_price"],
+                },
+            )
+            
 
         if "data_check" in active_steps:
             ##################
             # Implement here #
             ##################
-            pass
+
+            _ = mlflow.run(
+                os.path.join(repo_root, "src", "data_check"),  
+                "main",
+                env_manager="conda",
+                parameters={
+                    "csv": "clean_sample.csv:latest",
+                    "ref": "clean_sample.csv:reference",
+                    "kl_threshold": str(config["data_check"]["kl_threshold"]),
+                    "min_price": config["etl"]["min_price"],
+                    "max_price": config["etl"]["max_price"],
+                },
+            )
+
 
         if "data_split" in active_steps:
             ##################
             # Implement here #
             ##################
-            pass
+
+            _ = mlflow.run(
+                os.path.join(local_components, "train_val_test_split"),
+                "main",
+                parameters={
+                    "input": "clean_sample.csv:latest",                   # <- required name
+                    "test_size": config["modeling"]["test_size"],
+                    "random_seed": config["modeling"]["random_seed"],
+                    "stratify_by": config["modeling"]["stratify_by"],
+                },
+            )
 
         if "train_random_forest" in active_steps:
 
@@ -82,7 +125,21 @@ def go(config: DictConfig):
             # Implement here #
             ##################
 
-            pass
+            step_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "src", "train_random_forest"))
+
+            _ = mlflow.run(
+                step_path,
+                "main",
+                parameters={
+                    "trainval_artifact": "trainval_data.csv:latest",
+                    "val_size": config["modeling"]["val_size"],
+                    "random_seed": config["modeling"]["random_seed"],
+                    "stratify_by": config["modeling"]["stratify_by"],
+                    "rf_config": rf_config,
+                    "output_artifact": "random_forest_export",
+                    "max_tfidf_features": config["modeling"]["max_tfidf_features"],
+                },
+            )
 
         if "test_regression_model" in active_steps:
 
@@ -90,7 +147,14 @@ def go(config: DictConfig):
             # Implement here #
             ##################
 
-            pass
+            _ = mlflow.run(
+                os.path.join(os.path.dirname(__file__), "components", "test_regression_model"),
+                "main",
+                parameters={
+                    "mlflow_model": "random_forest_export:prod",
+                    "test_dataset": "test_data.csv:latest",
+                },
+            )
 
 
 if __name__ == "__main__":

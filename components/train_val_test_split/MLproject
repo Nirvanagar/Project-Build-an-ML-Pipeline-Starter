@@ -23,4 +23,4 @@ entry_points:
         type: string
         default: 'none'
 
-    command: "python run.py {input} {test_size} --random_seed {random_seed} --stratify_by {stratify_by}"
+    command: "bash -lc 'export CONDA_PREFIX=$(dirname $(dirname $(which python))); export LD_LIBRARY_PATH=\"$CONDA_PREFIX/lib:$LD_LIBRARY_PATH\"; python run.py {input} {test_size} --random_seed {random_seed} --stratify_by {stratify_by}'"
